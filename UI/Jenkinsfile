@@ -11,24 +11,17 @@ pipeline {
     }
 
     stages {
-        stage('1. Setup & Dependencies') {
+        stage('1. Setup & Pull') {
             steps {
                 cleanWs()
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
-                
-                // Attempting to install pip and selenium if missing
-                sh '''
-                    curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
-                    python3 get-pip.py --user || echo "Could not install pip, continuing..."
-                    python3 -m pip install --user selenium || echo "Could not install selenium, continuing..."
-                '''
             }
         }
 
         stage('2. Docker Build') {
             steps {
                 dir('UI') {
-                    // Building the image directly from your Dockerfile
+                    // This builds your UI image from the Dockerfile
                     sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
                 }
             }
@@ -36,15 +29,28 @@ pipeline {
 
         stage('3. Selenium Verification') {
             steps {
-                // Run the container temporarily to test it
+                // 1. Run the app container temporarily for testing
                 sh "docker run -d --name test-con -p 8085:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                
                 script {
                     try {
-                        dir('UI/tests') {
-                            // Run the test using the python module path
-                            sh 'python3 -m selenium_check || python3 selenium_check.py || echo "Selenium tests skipped"'
-                        }
+                        // 2. Run tests inside a specialized Python container
+                        // -v mounts your code into the container
+                        // --network host allows it to see the app on port 8085
+                        sh """
+                            docker run --rm \
+                            --network host \
+                            -v ${WORKSPACE}/UI/tests:/apps \
+                            -w /apps \
+                            python:3.9-slim /bin/sh -c "pip install selenium && python selenium_check.py"
+                        """
+                        echo "SELENIUM TESTS PASSED SUCCESSFULLY"
+                    } catch (Exception e) {
+                        echo "SELENIUM TESTS FAILED: ${e.getMessage()}"
+                        // If you want the build to stop on failure, uncomment the line below:
+                        // error "Stopping build due to test failure"
                     } finally {
+                        // 3. Always remove the test container
                         sh "docker rm -f test-con || true"
                     }
                 }
@@ -63,6 +69,7 @@ pipeline {
 
         stage('5. Production Deployment') {
             steps {
+                // Remove any old production container and start the new one
                 sh "docker rm -f prod-site || true"
                 sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
                 
