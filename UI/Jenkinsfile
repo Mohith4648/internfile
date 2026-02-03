@@ -26,27 +26,39 @@ pipeline {
             }
         }
 
-        stage('3. Selenium Quality Gate (Optimized)') {
+        stage('3. Selenium Quality Gate') {
             steps {
                 script {
+                    // PRE-CLEANUP
                     sh "docker rm -f test-con || true"
-                    sh "docker run -d --name test-con -p 8085:80 ${env.FULL_IMAGE_NAME}"
+                    
+                    // START TEST ENVIRONMENT
+                    sh "docker run -d --name test-con -p 8085:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
                     
                     try {
-                        echo "Running tests using Pre-Built Selenium Image..."
-                        // Using joyzoursky/python-selenium: It already has Chrome + Pip + Selenium
+                        echo "Bootstrapping Test Container with Browser Libraries..."
+                        // We use a specialized shell command to install chrome dependencies inside the python container
                         sh """
                             docker run --rm \
                             --network host \
                             -v ${WORKSPACE}/UI/tests:/apps \
                             -w /apps \
-                            joyzoursky/python-selenium:3.9-chrome \
-                            python selenium_check.py
+                            python:3.9-slim /bin/sh -c "
+                                apt-get update && \
+                                apt-get install -y wget gnupg curl unzip \
+                                libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+                                libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+                                libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 && \
+                                pip install --no-cache-dir selenium && \
+                                python selenium_check.py
+                            "
                         """
-                        echo "QUALITY CHECK PASSED"
+                        echo "SELENIUM VERIFICATION PASSED"
                     } catch (Exception e) {
-                        error "QUALITY CHECK FAILED: ${e.getMessage()}"
+                        echo "SELENIUM VERIFICATION FAILED: ${e.getMessage()}"
+                        error "Build aborted: Quality Gate Failed."
                     } finally {
+                        // POST-CLEANUP
                         sh "docker rm -f test-con || true"
                     }
                 }
