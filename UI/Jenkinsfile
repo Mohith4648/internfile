@@ -2,11 +2,10 @@ pipeline {
     agent any
 
     environment {
-        PODMAN_SOCKET = "unix:///var/run/docker.sock"
+        // We use the Docker socket but try the standard docker command
         DOCKER_HUB_USER = "mohith4648"
         IMAGE_NAME = "intern-project"
         TAG = "v1"
-        // We will define a local path for our downloaded Maven
         MVN_HOME = "${env.WORKSPACE}/apache-maven-3.9.6"
     }
 
@@ -16,7 +15,6 @@ pipeline {
                 cleanWs()
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
                 
-                // Download and extract Maven manually since you can't use 'tools'
                 sh '''
                     if [ ! -d "apache-maven-3.9.6" ]; then
                         echo "Downloading Maven..."
@@ -30,7 +28,6 @@ pipeline {
         stage('2. Maven Build') {
             steps {
                 dir('UI') {
-                    // We call the downloaded maven using its full local path
                     sh "${env.MVN_HOME}/bin/mvn clean package -DskipTests"
                 }
             }
@@ -39,21 +36,23 @@ pipeline {
         stage('3. Container Build') {
             steps {
                 dir('UI') {
-                    sh "podman --url ${PODMAN_SOCKET} build -t docker.io/${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG} ."
+                    // Switched from podman to docker
+                    sh "docker build -t ${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG} ."
                 }
             }
         }
 
         stage('4. Selenium Verification') {
             steps {
-                sh "podman --url ${PODMAN_SOCKET} run -d --name test-con -p 8085:80 docker.io/${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}"
+                sh "docker run -d --name test-con -p 8085:80 ${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}"
                 script {
                     try {
                         dir('UI/tests') {
+                            // Ensuring python3 is available
                             sh 'python3 selenium_check.py || echo "Tests failed but continuing"'
                         }
                     } finally {
-                        sh "podman --url ${PODMAN_SOCKET} rm -f test-con || true"
+                        sh "docker rm -f test-con || true"
                     }
                 }
             }
@@ -63,9 +62,9 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
                     sh """
-                        echo "${DOCKER_PASS}" | podman --url ${PODMAN_SOCKET} login -u "${DOCKER_USER}" --password-stdin
-                        podman --url ${PODMAN_SOCKET} push docker.io/${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}
-                        podman --url ${PODMAN_SOCKET} logout
+                        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+                        docker push ${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}
+                        docker logout
                     """
                 }
             }
@@ -73,8 +72,8 @@ pipeline {
 
         stage('6. Production Deployment') {
             steps {
-                sh "podman --url ${PODMAN_SOCKET} rm -f prod-site || true"
-                sh "podman --url ${PODMAN_SOCKET} run -d --name prod-site -p 8081:80 docker.io/${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}"
+                sh "docker rm -f prod-site || true"
+                sh "docker run -d --name prod-site -p 8081:80 ${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}"
                 
                 echo "----------------------------------------------------"
                 echo "DEPLOYMENT SUCCESSFUL - App is live at: http://localhost:8081"
