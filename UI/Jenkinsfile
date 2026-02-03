@@ -6,22 +6,32 @@ pipeline {
         DOCKER_HUB_USER = "mohith4648"
         IMAGE_NAME = "intern-project"
         TAG = "v1"
+        // We will define a local path for our downloaded Maven
+        MVN_HOME = "${env.WORKSPACE}/apache-maven-3.9.6"
     }
 
     stages {
-        stage('1. Clean & Pull') {
+        stage('1. Clean & Setup') {
             steps {
                 cleanWs()
-                // Ensure your GitHub URL is correct
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
+                
+                // Download and extract Maven manually since you can't use 'tools'
+                sh '''
+                    if [ ! -d "apache-maven-3.9.6" ]; then
+                        echo "Downloading Maven..."
+                        curl -O https://archive.apache.org/dist/maven/maven-3/3.9.6/binaries/apache-maven-3.9.6-bin.tar.gz
+                        tar -xzf apache-maven-3.9.6-bin.tar.gz
+                    fi
+                '''
             }
         }
 
         stage('2. Maven Build') {
             steps {
                 dir('UI') {
-                    // Running mvn directly without the Jenkins tool configuration
-                    sh 'mvn clean package -DskipTests'
+                    // We call the downloaded maven using its full local path
+                    sh "${env.MVN_HOME}/bin/mvn clean package -DskipTests"
                 }
             }
         }
