@@ -1,13 +1,8 @@
 pipeline {
     agent any
 
-    tools {
-        maven 'Maven'
-    }
-
     environment {
         PODMAN_SOCKET = "unix:///var/run/docker.sock"
-        // Replace with your actual Docker Hub username
         DOCKER_HUB_USER = "mohith4648"
         IMAGE_NAME = "intern-project"
         TAG = "v1"
@@ -17,6 +12,7 @@ pipeline {
         stage('1. Clean & Pull') {
             steps {
                 cleanWs()
+                // Ensure your GitHub URL is correct
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
             }
         }
@@ -24,6 +20,7 @@ pipeline {
         stage('2. Maven Build') {
             steps {
                 dir('UI') {
+                    // Running mvn directly without the Jenkins tool configuration
                     sh 'mvn clean package -DskipTests'
                 }
             }
@@ -32,7 +29,6 @@ pipeline {
         stage('3. Container Build') {
             steps {
                 dir('UI') {
-                    // Standard build using Podman
                     sh "podman --url ${PODMAN_SOCKET} build -t docker.io/${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG} ."
                 }
             }
@@ -55,16 +51,10 @@ pipeline {
 
         stage('5. Push to Docker Hub') {
             steps {
-                // Ensure you have created a 'Username with password' credential in Jenkins with ID 'docker-hub-creds'
                 withCredentials([usernamePassword(credentialsId: 'docker-hub-creds', passwordVariable: 'DOCKER_PASS', usernameVariable: 'DOCKER_USER')]) {
                     sh """
-                        # Login using the credentials from Jenkins
                         echo "${DOCKER_PASS}" | podman --url ${PODMAN_SOCKET} login -u "${DOCKER_USER}" --password-stdin
-                        
-                        # Push the image to your repository
                         podman --url ${PODMAN_SOCKET} push docker.io/${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}
-                        
-                        # Logout for security
                         podman --url ${PODMAN_SOCKET} logout
                     """
                 }
@@ -77,8 +67,7 @@ pipeline {
                 sh "podman --url ${PODMAN_SOCKET} run -d --name prod-site -p 8081:80 docker.io/${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}"
                 
                 echo "----------------------------------------------------"
-                echo "DEPLOYMENT SUCCESSFUL - Image Pushed to Docker Hub"
-                echo "App is live at: http://localhost:8081"
+                echo "DEPLOYMENT SUCCESSFUL - App is live at: http://localhost:8081"
                 echo "----------------------------------------------------"
             }
         }
