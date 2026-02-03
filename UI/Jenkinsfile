@@ -4,7 +4,7 @@ pipeline {
     environment {
         DOCKER_HUB_USER = "mohith4648"
         // ENTER YOUR REAL DOCKER HUB PASSWORD HERE
-        DOCKER_HUB_PASS = "your_real_password_here" 
+        DOCKER_HUB_PASS = "dckr_pat__8huaWVfjTtjjc4g622LRU0Nvp0" 
         
         IMAGE_NAME = "intern-project"
         TAG = "v1"
@@ -13,7 +13,6 @@ pipeline {
     stages {
         stage('1. Setup & Workspace Cleanup') {
             steps {
-                // Ensures a fresh start every time
                 cleanWs()
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
             }
@@ -22,7 +21,6 @@ pipeline {
         stage('2. Docker Image Build') {
             steps {
                 dir('UI') {
-                    echo "Starting Docker Build for ${env.IMAGE_NAME}..."
                     sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
                 }
             }
@@ -31,39 +29,44 @@ pipeline {
         stage('3. Selenium Quality Gate') {
             steps {
                 script {
-                    // 1. PRE-CLEANUP: Kill any lingering test containers from previous builds
+                    // PRE-CLEANUP
                     sh "docker rm -f test-con || true"
                     
-                    // 2. START TEST ENVIRONMENT
+                    // START TEST ENVIRONMENT
                     sh "docker run -d --name test-con -p 8085:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
                     
                     try {
-                        echo "Running Selenium Automation Suite..."
-                        // 3. EXECUTE TESTS: Using a containerized Python environment
-                        // This ensures the test runs regardless of Jenkins server limitations
+                        echo "Bootstrapping Test Container with Browser Libraries..."
+                        // We use a specialized shell command to install chrome dependencies inside the python container
                         sh """
                             docker run --rm \
                             --network host \
                             -v ${WORKSPACE}/UI/tests:/apps \
                             -w /apps \
-                            python:3.9-slim /bin/sh -c "pip install --no-cache-dir selenium && python selenium_check.py"
+                            python:3.9-slim /bin/sh -c "
+                                apt-get update && \
+                                apt-get install -y wget gnupg curl unzip \
+                                libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 \
+                                libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+                                libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 && \
+                                pip install --no-cache-dir selenium && \
+                                python selenium_check.py
+                            "
                         """
                         echo "SELENIUM VERIFICATION PASSED"
                     } catch (Exception e) {
                         echo "SELENIUM VERIFICATION FAILED: ${e.getMessage()}"
-                        // Hard fail: This ensures the build STOPS if tests fail
-                        error "Build aborted due to Selenium test failures. Quality Gate not met."
+                        error "Build aborted: Quality Gate Failed."
                     } finally {
-                        // 4. POST-CLEANUP: Always stop the test container
+                        // POST-CLEANUP
                         sh "docker rm -f test-con || true"
                     }
                 }
             }
         }
 
-        stage('4. Security Login & Push') {
+        stage('4. Push to Docker Hub') {
             steps {
-                echo "Pushing verified image to Docker Hub..."
                 sh """
                     echo "${env.DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
                     docker push ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}
@@ -74,14 +77,11 @@ pipeline {
 
         stage('5. Production Deployment') {
             steps {
-                echo "Deploying to Production Environment..."
-                // Ensure production container is updated cleanly
                 sh "docker rm -f prod-site || true"
                 sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
                 
                 echo "------------------------------------------------------------"
-                echo " PROJECT SUBMISSION READY"
-                echo " Status: DEPLOYED"
+                echo " PROJECT STATUS: DEPLOYED SUCCESSFULLY"
                 echo " URL: http://localhost:8081"
                 echo "------------------------------------------------------------"
             }
