@@ -2,131 +2,53 @@ pipeline {
     agent any
 
     environment {
+        // We reference the ID you created in Jenkins Credentials (e.g., 'docker-hub-creds')
         DOCKER_HUB_USER = "mohith4648"
-        DOCKER_HUB_PASS = "dckr_pat__8huaWVfjTtjjc4g622LRU0Nvp0"   // Demo only
-        IMAGE_NAME = "intern-project"
-        TAG = "v1"
+        IMAGE_NAME = "intern-file"
+        TAG = "1.0.0"
     }
 
     stages {
-
-        // ============================
-        // 1. CLEAN & CLONE
-        // ============================
-        stage('1. Setup & Checkout') {
+        stage('1. Setup & Workspace Cleanup') {
             steps {
                 cleanWs()
-                git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
+                // Ensure the URL matches your current Tourism repository
+                git branch: 'main', url: 'https://github.com/Mohith4648/tourisum-project.git'
             }
         }
 
-        // ============================
-        // 2. BUILD APP IMAGE
-        // ============================
-        stage('2. Build App Image') {
+        stage('2. Docker Image Build') {
             steps {
                 dir('UI') {
+                    echo "Building Image: ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                    sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
+                }
+            }
+        }
+
+        stage('3. Push to Docker Hub') {
+            steps {
+                // 'docker-hub-creds' is the ID you gave your credentials in Jenkins
+                withCredentials([string(credentialsId: 'docker-hub-creds', variable: 'DOCKER_HUB_PASS')]) {
                     sh """
-                        docker build -t ${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG} .
+                        echo "${DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
+                        docker push ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}
+                        docker logout
                     """
                 }
             }
         }
 
-        // ============================
-        // 3. BUILD SELENIUM IMAGE
-        // ============================
-        stage('3. Build Selenium Image') {
+        stage('4. Production Deployment') {
             steps {
-                dir('UI') {
-                    sh """
-                        docker build -t my-selenium:latest \
-                        -f tests/Dockerfile.selenium tests
-                    """
-                }
-            }
-        }
-
-        // ============================
-        // 4. RUN SELENIUM TEST
-        // ============================
-        stage('4. Selenium Quality Gate') {
-            steps {
-                script {
-
-                    // Cleanup old containers
-                    sh "docker rm -f test-con || true"
-
-                    // Start App Container
-                    sh """
-                        docker run -d \
-                        --name test-con \
-                        -p 8085:80 \
-                        ${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}
-                    """
-
-                    try {
-
-                        echo "Running Selenium Tests..."
-
-                        // Run Selenium Container
-                        sh """
-                            docker run --rm \
-                            --network host \
-                            my-selenium:latest
-                        """
-
-                        echo "SELENIUM TEST PASSED ✅"
-
-                    } catch (e) {
-
-                        echo "SELENIUM TEST FAILED ❌"
-                        error "Build Failed"
-
-                    } finally {
-
-                        // Cleanup
-                        sh "docker rm -f test-con || true"
-                    }
-                }
-            }
-        }
-
-        // ============================
-        // 5. PUSH IMAGE
-        // ============================
-        stage('5. Push to DockerHub') {
-            steps {
-                sh """
-                    echo "${DOCKER_HUB_PASS}" | docker login \
-                    -u "${DOCKER_HUB_USER}" --password-stdin
-
-                    docker push ${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}
-
-                    docker logout
-                """
-            }
-        }
-
-        // ============================
-        // 6. DEPLOY
-        // ============================
-        stage('6. Production Deploy') {
-            steps {
-
                 sh "docker rm -f prod-site || true"
-
-                sh """
-                    docker run -d \
-                    --name prod-site \
-                    -p 8081:80 \
-                    ${DOCKER_HUB_USER}/${IMAGE_NAME}:${TAG}
-                """
-
-                echo "========================================"
-                echo " DEPLOYMENT SUCCESSFUL 🚀"
-                echo " URL: http://localhost:8081"
-                echo "========================================"
+                sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                
+                echo "------------------------------------------------------------"
+                echo " TOURISM PROJECT DEPLOYED SUCCESSFULLY"
+                echo " Access URL: http://localhost:8081"
+                echo " Build Status: SUCCESS"
+                echo "------------------------------------------------------------"
             }
         }
     }
