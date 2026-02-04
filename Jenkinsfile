@@ -2,17 +2,15 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_HUB_USER = "mohith4648"
+        // We define the Image name, but leave the username to be pulled from credentials
         IMAGE_NAME = "intern-project"
         TAG = "v1"
-        // Using the ID you created in Manage Jenkins
         CRED_ID = "dockerentry" 
     }
 
     stages {
         stage('1. Setup & Workspace Cleanup') {
             steps {
-                // Built-in clean is much faster and won't hang
                 cleanWs()
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
             }
@@ -20,23 +18,27 @@ pipeline {
 
         stage('2. Build Application Image') {
             steps {
-                script {
-                    echo "Building Docker Image: ${env.IMAGE_NAME}"
-                    // Building from the root directory (.)
-                    sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
+                // Here we use the credentials to get the username for the tag
+                withCredentials([usernamePassword(credentialsId: "${env.CRED_ID}", 
+                                 passwordVariable: 'DOCKER_PASS', 
+                                 usernameVariable: 'DOCKER_USER')]) {
+                    script {
+                        echo "Building Docker Image for user: ${DOCKER_USER}"
+                        // Tagging the image using the variable from Jenkins credentials
+                        sh "docker build -t ${DOCKER_USER}/${env.IMAGE_NAME}:${env.TAG} ."
+                    }
                 }
             }
         }
 
         stage('3. Push to Docker Hub') {
             steps {
-                // This 'usernamePassword' block matches your 'dockerentry' type
                 withCredentials([usernamePassword(credentialsId: "${env.CRED_ID}", 
-                                 passwordVariable: 'DOCKER_HUB_PASS', 
-                                 usernameVariable: 'DOCKER_HUB_USER_VAR')]) {
+                                 passwordVariable: 'DOCKER_PASS', 
+                                 usernameVariable: 'DOCKER_USER')]) {
                     sh """
-                        echo "${DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
-                        docker push ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}
+                        echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin
+                        docker push ${DOCKER_USER}/${env.IMAGE_NAME}:${env.TAG}
                         docker logout
                     """
                 }
@@ -45,19 +47,21 @@ pipeline {
 
         stage('4. Production Deployment') {
             steps {
-                script {
-                    // Remove old container to avoid port conflicts
-                    sh "docker rm -f prod-site || true"
-                    
-                    // Deploy to port 8081
-                    sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
-                    
-                    echo """
-                    ------------------------------------------------------------
-                    PROJECT STATUS: DEPLOYED SUCCESSFULLY
-                    ACCESS URL: http://localhost:8081
-                    ------------------------------------------------------------
-                    """
+                // Again, using the credential variable for the deployment
+                withCredentials([usernamePassword(credentialsId: "${env.CRED_ID}", 
+                                 passwordVariable: 'DOCKER_PASS', 
+                                 usernameVariable: 'DOCKER_USER')]) {
+                    script {
+                        sh "docker rm -f prod-site || true"
+                        sh "docker run -d --name prod-site -p 8081:80 ${DOCKER_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                        
+                        echo """
+                        ------------------------------------------------------------
+                        PROJECT STATUS: DEPLOYED SUCCESSFULLY
+                        URL: http://localhost:8081
+                        ------------------------------------------------------------
+                        """
+                    }
                 }
             }
         }
