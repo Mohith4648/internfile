@@ -1,35 +1,20 @@
-# Base image with Python
-FROM python:3.9-slim
+# Prebuilt image with Chrome + Driver already installed
+FROM selenium/standalone-chrome:latest
 
-# Install Chrome, ChromeDriver, and required libraries
-RUN apt-get update && apt-get install -y \
-    chromium \
-    chromium-driver \
-    wget \
-    curl \
-    unzip \
-    gnupg \
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxfixes3 \
-    libxrandr2 \
-    libgbm1 \
-    libasound2 \
-    libpango-1.0-0 \
-    libcairo2 \
-    && rm -rf /var/lib/apt/lists/*
+USER root
 
-# Install Selenium
-RUN pip install --no-cache-dir selenium
+# Install Python & Selenium
+RUN apt-get update && \
+    apt-get install -y python3 python3-pip && \
+    pip3 install --no-cache-dir selenium && \
+    rm -rf /var/lib/apt/lists/*
 
-# Set working directory inside container
+# Set working directory
 WORKDIR /apps
 
-# Default command (can be overridden)
-CMD ["python", "selenium_check.py"]
+# Copy selenium script
+COPY selenium_check.py .
+
+# Run test
+CMD ["python3", "selenium_check.py"]
+
