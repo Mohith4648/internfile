@@ -1,0 +1,1 @@
+import{Y as e,aa as i,ae as a,wc as n}from"./chunk-2UY44GV6.js";var p=class t{constructor(o){this.http=o}getPosts(o){let r=`${a.API_URL}loginformmodel/`;return this.http.post(r,o)}static \u0275fac=function(r){return new(r||t)(i(n))};static \u0275prov=e({token:t,factory:t.\u0275fac,providedIn:"root"})};export{p as a};
