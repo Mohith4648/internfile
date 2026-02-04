@@ -1,3 +1,4 @@
+
 pipeline {
     agent any
 
@@ -5,30 +6,32 @@ pipeline {
         DOCKER_HUB_USER = "mohith4648"
         IMAGE_NAME = "intern-project"
         TAG = "v1"
+        // Ensure this ID matches the name you gave your credential in Jenkins
         CRED_ID = "mohith4648" 
     }
 
     stages {
-        stage('1. Environment Reset & Pull') {
+        stage('1. Setup & Workspace Cleanup') {
             steps {
-                script {
-                    // Force delete the hidden cache folders
-                    sh "rm -rf ${WORKSPACE}@* || true"
-                    cleanWs()
-                    git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
-                }
+                // Safely cleans the workspace
+                cleanWs()
+                git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
             }
         }
 
         stage('2. Build Application Image') {
             steps {
-                // Building from the root where your Dockerfile now lives
-                sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
+                script {
+                    // Builds from the root since you moved your files out of the UI folder
+                    echo "Building Docker Image: ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                    sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
+                }
             }
         }
 
-        stage('3. Secure Registry Push') {
+        stage('3. Push to Docker Hub') {
             steps {
+                // Securely pulls your password from Jenkins settings instead of hardcoding it
                 withCredentials([string(credentialsId: "${env.CRED_ID}", variable: 'DOCKER_HUB_PASS')]) {
                     sh """
                         echo "${DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
@@ -41,20 +44,18 @@ pipeline {
 
         stage('4. Production Deployment') {
             steps {
-                sh "docker rm -f prod-site || true"
-                sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
-                
-                echo "------------------------------------------------------------"
-                echo "SUCCESS: intern-project is live at http://localhost:8081"
-                echo "------------------------------------------------------------"
+                script {
+                    sh "docker rm -f prod-site || true"
+                    sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                    
+                    echo """
+                    ------------------------------------------------------------
+                    PROJECT STATUS: DEPLOYED SUCCESSFULLY
+                    URL: http://localhost:8081
+                    ------------------------------------------------------------
+                    """
+                }
             }
-        }
-    }
-
-    post {
-        always {
-            // Keep the server clean
-            sh "rm -rf ${WORKSPACE}@*"
         }
     }
 }
