@@ -30,8 +30,10 @@ pipeline {
 
         stage('3. Push to Docker Hub') {
             steps {
-                // Securely using your 'dockerentry' credentials
-                withCredentials([string(credentialsId: "${env.CRED_ID}", variable: 'DOCKER_HUB_PASS')]) {
+                // This 'usernamePassword' block matches your 'dockerentry' type
+                withCredentials([usernamePassword(credentialsId: "${env.CRED_ID}", 
+                                 passwordVariable: 'DOCKER_HUB_PASS', 
+                                 usernameVariable: 'DOCKER_HUB_USER_VAR')]) {
                     sh """
                         echo "${DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
                         docker push ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}
