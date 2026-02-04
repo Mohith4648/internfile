@@ -2,25 +2,24 @@ pipeline {
     agent any
 
     environment {
-        // We reference the ID you created in Jenkins Credentials (e.g., 'docker-hub-creds')
         DOCKER_HUB_USER = "mohith4648"
-        IMAGE_NAME = "intern-file"
-        TAG = "1.0.0"
+        IMAGE_NAME = "tourism-travel-portal"
+        TAG = "v1"
     }
 
     stages {
         stage('1. Setup & Workspace Cleanup') {
             steps {
                 cleanWs()
-                // Ensure the URL matches your current Tourism repository
+                // Replace with your Tourism repo URL
                 git branch: 'main', url: 'https://github.com/Mohith4648/tourisum-project.git'
             }
         }
 
-        stage('2. Docker Image Build') {
+        stage('2. Build Application Image') {
             steps {
                 dir('UI') {
-                    echo "Building Image: ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                    // This builds using the standard 'Dockerfile' in your UI folder
                     sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
                 }
             }
@@ -28,7 +27,7 @@ pipeline {
 
         stage('3. Push to Docker Hub') {
             steps {
-                // 'docker-hub-creds' is the ID you gave your credentials in Jenkins
+                // Using the Credential ID you created in Jenkins
                 withCredentials([string(credentialsId: 'docker-hub-creds', variable: 'DOCKER_HUB_PASS')]) {
                     sh """
                         echo "${DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
@@ -39,16 +38,12 @@ pipeline {
             }
         }
 
-        stage('4. Production Deployment') {
+        stage('4. Deploy to Production') {
             steps {
                 sh "docker rm -f prod-site || true"
                 sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
                 
-                echo "------------------------------------------------------------"
-                echo " TOURISM PROJECT DEPLOYED SUCCESSFULLY"
-                echo " Access URL: http://localhost:8081"
-                echo " Build Status: SUCCESS"
-                echo "------------------------------------------------------------"
+                echo "SUCCESS: Tourism Project is live at Port 8081"
             }
         }
     }
