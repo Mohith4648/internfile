@@ -1,20 +1,20 @@
-
 pipeline {
     agent any
 
     environment {
         DOCKER_HUB_USER = "mohith4648"
+        // Replace this with your actual Docker Hub Token/Password
+        DOCKER_HUB_PASS = "dckr_pat__8huaWVfjTtjjc4g622LRU0Nvp0" 
+        
         IMAGE_NAME = "intern-project"
         TAG = "v1"
-        // Ensure this ID matches the name you gave your credential in Jenkins
-        CRED_ID = "mohith4648" 
     }
 
     stages {
         stage('1. Setup & Workspace Cleanup') {
             steps {
-                // Safely cleans the workspace
                 cleanWs()
+                // Pulling your clean code from the internfile repo
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
             }
         }
@@ -22,8 +22,8 @@ pipeline {
         stage('2. Build Application Image') {
             steps {
                 script {
-                    // Builds from the root since you moved your files out of the UI folder
-                    echo "Building Docker Image: ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                    echo "Building Docker Image..."
+                    // Building from the root where your Dockerfile is
                     sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
                 }
             }
@@ -31,10 +31,10 @@ pipeline {
 
         stage('3. Push to Docker Hub') {
             steps {
-                // Securely pulls your password from Jenkins settings instead of hardcoding it
-                withCredentials([string(credentialsId: "${env.CRED_ID}", variable: 'DOCKER_HUB_PASS')]) {
+                script {
+                    echo "Logging into Docker Hub and Pushing..."
                     sh """
-                        echo "${DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
+                        echo "${env.DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
                         docker push ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}
                         docker logout
                     """
@@ -45,17 +45,27 @@ pipeline {
         stage('4. Production Deployment') {
             steps {
                 script {
+                    // Remove old container to avoid port 8081 conflicts
                     sh "docker rm -f prod-site || true"
+                    
+                    // Deploy to port 8081
                     sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
                     
                     echo """
                     ------------------------------------------------------------
                     PROJECT STATUS: DEPLOYED SUCCESSFULLY
-                    URL: http://localhost:8081
+                    ACCESS URL: http://localhost:8081
                     ------------------------------------------------------------
                     """
                 }
             }
+        }
+    }
+
+    post {
+        always {
+            // Clean up temporary Jenkins folders
+            sh "rm -rf ${WORKSPACE}@*"
         }
     }
 }
