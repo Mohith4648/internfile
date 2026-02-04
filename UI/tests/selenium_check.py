@@ -1,42 +1,51 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.support.ui import WebDriverWait
 import sys
-import time
+
 
 def test_ui():
     chrome_options = Options()
-    # CRITICAL: Use 'new' for modern headless support in Jenkins
-    chrome_options.add_argument("--headless=new") 
+
+    # Headless + CI Optimized Options
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu") 
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920,1080")
+    chrome_options.add_argument("--log-level=3")
 
-    # Initialize the driver
     try:
-        driver = webdriver.Chrome(options=chrome_options)
-        
-        # USE 127.0.0.1 and port 8085 (the test port we set in Jenkinsfile)
+        # Explicitly set ChromeDriver path (works inside Docker)
+        service = Service("/usr/bin/chromedriver")
+
+        driver = webdriver.Chrome(
+            service=service,
+            options=chrome_options
+        )
+
         target_url = "http://127.0.0.1:8085"
         print(f"Connecting to {target_url}...")
-        
-        # Give the app a second to fully boot up
-        time.sleep(2) 
+
         driver.get(target_url)
 
+        # Smart wait: wait until page title is available (max 10 sec)
+        WebDriverWait(driver, 10).until(
+            lambda d: d.title and len(d.title) > 0
+        )
+
         print(f"Page Title: {driver.title}")
-        
-        # Professional check: Ensure title is not empty and contains your app name
-        if driver.title and len(driver.title) > 0:
-            print("Build Verified Successfully!")
-        else:
-            raise Exception("Page loaded but title is empty!")
+        print("Build Verified Successfully!")
 
     except Exception as e:
-        print(f"SELENIUM TEST FAILED: {e}")
+        print(f"\n❌ SELENIUM TEST FAILED: {e}\n")
         sys.exit(1)
+
     finally:
         if 'driver' in locals():
             driver.quit()
+
 
 if __name__ == "__main__":
     test_ui()
