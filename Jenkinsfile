@@ -2,36 +2,37 @@ pipeline {
     agent any
 
     environment {
-        // Professional Metadata
         DOCKER_HUB_USER = "mohith4648"
         IMAGE_NAME = "intern-project"
         TAG = "v1"
-        // Ensure this ID matches your Jenkins Credentials ID
+        // Double check: This must match the ID in your Jenkins Credentials list
         CRED_ID = "mohith4648" 
     }
 
     stages {
-        stage('1. Environment Cleanup & Pull') {
+        stage('1. Force Reset & Pull') {
             steps {
-                // Cleans the workspace to prevent old file "ghosts"
-                cleanWs()
-                // Directly pulls your code from the internfile repo
-                git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
+                script {
+                    // KILL THE CACHE: This removes the hidden @script folders holding old Selenium code
+                    sh "rm -rf ${WORKSPACE}@* || true"
+                    
+                    // Clean the main workspace
+                    cleanWs()
+                    
+                    // Pull fresh code from GitHub
+                    git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
+                }
             }
         }
 
-        stage('2. Build & Remove Unused Artifacts') {
+        stage('2. Build Application Image') {
             steps {
                 script {
-                    // Logic to delete unused files before building the image
-                    sh """
-                        rm -f pom.xml || true
-                        rm -rf archive_automation || true
-                        echo "Workspace cleaned of unused artifacts."
-                    """
+                    // Clean up any stray files before building
+                    sh "rm -f pom.xml || true"
                     
-                    // Build the Docker image using your Nginx Dockerfile
-                    // Note: If Dockerfile is in the root, we don't need dir('UI')
+                    // Build the Docker image from the ROOT directory
+                    echo "Starting Docker build for intern-project..."
                     sh "docker build -t ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG} ."
                 }
             }
@@ -39,7 +40,6 @@ pipeline {
 
         stage('3. Secure Registry Push') {
             steps {
-                // Using Jenkins Credentials Store for security
                 withCredentials([string(credentialsId: "${env.CRED_ID}", variable: 'DOCKER_HUB_PASS')]) {
                     sh """
                         echo "${DOCKER_HUB_PASS}" | docker login -u "${env.DOCKER_HUB_USER}" --password-stdin
@@ -53,17 +53,17 @@ pipeline {
         stage('4. Production Deployment') {
             steps {
                 script {
-                    // Stop existing container to avoid port conflicts
+                    // Remove old container if it exists
                     sh "docker rm -f prod-site || true"
                     
-                    // Run the new container on port 8081
+                    // Deploy the new container
                     sh "docker run -d --name prod-site -p 8081:80 ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}"
                     
                     echo """
                     ------------------------------------------------------------
-                    DEPLOID SUCCESSFULLY: intern-project
+                    DEPLOYED SUCCESSFULLY: intern-project
                     ACCESS URL: http://localhost:8081
-                    DOCKER IMAGE: ${env.DOCKER_HUB_USER}/${env.IMAGE_NAME}:${env.TAG}
+                    STATUS: PRODUCTION IS LIVE
                     ------------------------------------------------------------
                     """
                 }
@@ -73,7 +73,7 @@ pipeline {
 
     post {
         always {
-            // Final cleanup of the @script and @tmp folders to keep the server clean
+            // Final housekeeping to keep the Jenkins server healthy
             sh "rm -rf ${WORKSPACE}@*"
         }
     }
