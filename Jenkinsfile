@@ -63,31 +63,29 @@ pipeline {
         }
 
         stage('4. Kubernetes Production Deployment') {
-            steps {
-                script {
-                    echo "Deploying to Kubernetes using Config from GitHub..."
-                    
-                    // Check if the config file actually exists in your repo
-                    if (fileExists(env.KUBECONFIG_PATH)) {
-                        // 1. Apply the Deployment and Service
-                        sh "kubectl --kubeconfig=${env.KUBECONFIG_PATH} apply -f deployment.yaml"
-                        
-                        // 2. Restart Pods to pull the fresh v1 image
-                        sh "kubectl --kubeconfig=${env.KUBECONFIG_PATH} rollout restart deployment/${env.K8S_DEPLOYMENT_NAME}"
-                        
-                        // 3. Status check
-                        sh "kubectl --kubeconfig=${env.KUBECONFIG_PATH} rollout status deployment/${env.K8S_DEPLOYMENT_NAME}"
-                        
-                        echo "------------------------------------------------------------"
-                        echo "SUCCESS: Self-Healing Kubernetes Deployment Complete!"
-                        echo "------------------------------------------------------------"
-                    } else {
-                        error "ERROR: ${env.KUBECONFIG_PATH} not found in repository! Please upload it to the scripts/ folder."
-                    }
-                }
+    steps {
+        script {
+            echo "Checking for kubectl and deploying..."
+            
+            if (fileExists(env.KUBECONFIG_PATH)) {
+                // This 'Magic' line downloads kubectl directly into your workspace
+                sh 'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"'
+                sh 'chmod +x ./kubectl' // Make it executable
+                
+                // Now we use ./kubectl (the one we just downloaded) instead of just kubectl
+                sh "./kubectl --kubeconfig=${env.KUBECONFIG_PATH} apply -f deployment.yaml"
+                sh "./kubectl --kubeconfig=${env.KUBECONFIG_PATH} rollout restart deployment/${env.K8S_DEPLOYMENT_NAME}"
+                sh "./kubectl --kubeconfig=${env.KUBECONFIG_PATH} rollout status deployment/${env.K8S_DEPLOYMENT_NAME}"
+                
+                echo "------------------------------------------------------------"
+                echo "SUCCESS: Self-Healing Kubernetes Deployment Complete!"
+                echo "------------------------------------------------------------"
+            } else {
+                error "ERROR: ${env.KUBECONFIG_PATH} not found in repository!"
             }
         }
     }
+}
 
     post {
         always {
