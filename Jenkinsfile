@@ -2,49 +2,102 @@ pipeline {
     agent any
 
     environment {
+        // --- SONARQUBE CONFIGURATION ---
         SONAR_PROJECT_KEY = "Mohith4648_internfile"
         SONAR_ORG_KEY     = "mohith4648"
+        
+        // --- DOCKER CONFIGURATION ---
         IMAGE_NAME = "intern-project"
         TAG = "v1"
-        CRED_ID = "dockerentry"
-        K8S_DEPLOYMENT_NAME = "intern-proj-deployment"
+        CRED_ID = "dockerentry" // Docker Hub credentials ID in Jenkins
         
-        // --- NEW: Kubernetes Credential ID ---
-        // You will create this 'secret file' in the Jenkins UI
-        K8S_CRED_ID = "k8s-kubeconfig" 
+        // --- KUBERNETES CONFIGURATION ---
+        K8S_DEPLOYMENT_NAME = "intern-proj-deployment"
+        // Path to your config file inside your GitHub repo
+        KUBECONFIG_PATH = "scripts/myconfig.yaml" 
     }
 
     stages {
         stage('1. Setup & Workspace Cleanup') {
             steps {
                 cleanWs()
+                // Pulls your code from GitHub
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
             }
         }
 
-        // ... Stages 2 & 3 (SonarQube & Docker) stay exactly the same ...
-
-        stage('4. Kubernetes Production Deployment') {
+        stage('2. SonarQube Static Analysis') {
             steps {
-                // This binds your uploaded kubeconfig file to a temporary path variable
-                withCredentials([file(credentialsId: "${env.K8S_CRED_ID}", variable: 'KUBECONFIG')]) {
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                     script {
-                        echo "Deploying to Kubernetes via Remote Jenkins..."
-                        
-                        // Check if kubectl exists; if not, you may need to ask your 'Sir' to install it
-                        sh "kubectl version --client"
-                        
-                        // Use the injected KUBECONFIG to authenticate
-                        sh "kubectl --kubeconfig=${KUBECONFIG} apply -f deployment.yaml"
-                        sh "kubectl --kubeconfig=${KUBECONFIG} rollout restart deployment/${env.K8S_DEPLOYMENT_NAME}"
-                        sh "kubectl --kubeconfig=${KUBECONFIG} rollout status deployment/${env.K8S_DEPLOYMENT_NAME}"
-                        
-                        echo "------------------------------------------------------------"
-                        echo "SUCCESS: Highly Available Deployment Complete!"
-                        echo "------------------------------------------------------------"
+                        echo "Starting Code Analysis on SonarCloud..."
+                        sh """
+                            docker run --rm \
+                            -v ${WORKSPACE}:/usr/src \
+                            -e SONAR_TOKEN=${SONAR_TOKEN} \
+                            -e SONAR_HOST_URL="https://sonarcloud.io" \
+                            sonarsource/sonar-scanner-cli \
+                            -Dsonar.projectKey=${env.SONAR_PROJECT_KEY} \
+                            -Dsonar.organization=${env.SONAR_ORG_KEY} \
+                            -Dsonar.sources=.
+                        """
                     }
                 }
             }
+        }
+
+        stage('3. Build & Push Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: "${env.CRED_ID}", 
+                                                 passwordVariable: 'DOCKER_PASS', 
+                                                 usernameVariable: 'DOCKER_USER')]) {
+                    script {
+                        echo "Building and Pushing Image to Docker Hub..."
+                        sh "docker build -t ${DOCKER_USER}/${env.IMAGE_NAME}:${env.TAG} ."
+                        sh "echo '${DOCKER_PASS}' | docker login -u '${DOCKER_USER}' --password-stdin"
+                        sh "docker push ${DOCKER_USER}/${env.IMAGE_NAME}:${env.TAG}"
+                        sh "docker logout"
+                    }
+                }
+            }
+        }
+
+        stage('4. Kubernetes Production Deployment') {
+            steps {
+                script {
+                    echo "Deploying to Kubernetes using Config from GitHub..."
+                    
+                    // Check if the config file actually exists in your repo
+                    if (fileExists(env.KUBECONFIG_PATH)) {
+                        // 1. Apply the Deployment and Service
+                        sh "kubectl --kubeconfig=${env.KUBECONFIG_PATH} apply -f deployment.yaml"
+                        
+                        // 2. Restart Pods to pull the fresh v1 image
+                        sh "kubectl --kubeconfig=${env.KUBECONFIG_PATH} rollout restart deployment/${env.K8S_DEPLOYMENT_NAME}"
+                        
+                        // 3. Status check
+                        sh "kubectl --kubeconfig=${env.KUBECONFIG_PATH} rollout status deployment/${env.K8S_DEPLOYMENT_NAME}"
+                        
+                        echo "------------------------------------------------------------"
+                        echo "SUCCESS: Self-Healing Kubernetes Deployment Complete!"
+                        echo "------------------------------------------------------------"
+                    } else {
+                        error "ERROR: ${env.KUBECONFIG_PATH} not found in repository! Please upload it to the scripts/ folder."
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            echo "Pipeline execution finished."
+        }
+        success {
+            echo "Project is live on Kubernetes!"
+        }
+        failure {
+            echo "Pipeline failed. Check Jenkins logs for details."
         }
     }
 }
