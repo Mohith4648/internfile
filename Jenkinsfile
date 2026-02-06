@@ -9,23 +9,21 @@ pipeline {
         // --- DOCKER CONFIGURATION ---
         IMAGE_NAME = "intern-project"
         TAG = "v1"
-        CRED_ID = "dockerentry" 
-        
-        // --- KUBERNETES CONFIGURATION ---
-        K8S_DEPLOYMENT_NAME = "intern-proj-deployment"
-        KUBECONFIG_PATH = "scripts/myconfig.yaml" 
+        CRED_ID = "dockerentry" // For your Docker Hub login
     }
 
     stages {
         stage('1. Setup & Workspace Cleanup') {
             steps {
                 cleanWs()
+                // Pulls your tourism portal code
                 git branch: 'main', url: 'https://github.com/Mohith4648/internfile.git'
             }
         }
 
         stage('2. SonarQube Static Analysis') {
             steps {
+                // This 'sonar-token' must match the ID you just created in Jenkins Credentials
                 withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                     script {
                         echo "Starting Code Analysis on SonarCloud..."
@@ -47,12 +45,16 @@ pipeline {
         stage('3. Build & Push Image') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${env.CRED_ID}", 
-                                                 passwordVariable: 'DOCKER_PASS', 
-                                                 usernameVariable: 'DOCKER_USER')]) {
+                                 passwordVariable: 'DOCKER_PASS', 
+                                 usernameVariable: 'DOCKER_USER')]) {
                     script {
-                        echo "Building and Pushing Image to Docker Hub..."
+                        echo "Building Docker Image for ${DOCKER_USER}..."
                         sh "docker build -t ${DOCKER_USER}/${env.IMAGE_NAME}:${env.TAG} ."
+                        
+                        echo "Logging into Docker Hub..."
                         sh "echo '${DOCKER_PASS}' | docker login -u '${DOCKER_USER}' --password-stdin"
+                        
+                        echo "Pushing Image..."
                         sh "docker push ${DOCKER_USER}/${env.IMAGE_NAME}:${env.TAG}"
                         sh "docker logout"
                     }
@@ -60,35 +62,26 @@ pipeline {
             }
         }
 
-        stage('4. Kubernetes Production Deployment') {
+        stage('4. Production Deployment') {
             steps {
-                script {
-                    echo "Checking for kubectl and deploying..."
-                    
-                    if (fileExists(env.KUBECONFIG_PATH)) {
-                        // Download portable kubectl
-                        sh 'curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"'
-                        sh 'chmod +x ./kubectl'
+                withCredentials([usernamePassword(credentialsId: "${env.CRED_ID}", 
+                                 passwordVariable: 'DOCKER_PASS', 
+                                 usernameVariable: 'DOCKER_USER')]) {
+                    script {
+                        echo "Deploying to Port 8081..."
+                        // Remove old container if it exists
+                        sh "docker rm -f prod-site || true"
                         
-                        // Execute Deployment using the downloaded binary
-                        sh "./kubectl --kubeconfig=${env.KUBECONFIG_PATH} apply -f deployment.yaml"
-                        sh "./kubectl --kubeconfig=${env.KUBECONFIG_PATH} rollout restart deployment/${env.K8S_DEPLOYMENT_NAME}"
-                        sh "./kubectl --kubeconfig=${env.KUBECONFIG_PATH} rollout status deployment/${env.K8S_DEPLOYMENT_NAME}"
+                        // Run the updated container
+                        sh "docker run -d --name prod-site -p 8081:80 ${DOCKER_USER}/${env.IMAGE_NAME}:${env.TAG}"
                         
                         echo "------------------------------------------------------------"
-                        echo "SUCCESS: Self-Healing Kubernetes Deployment Complete!"
+                        echo "SUCCESS: Build and Deployment Complete!"
+                        echo "Check SonarCloud for results: https://sonarcloud.io/project/overview?id=${env.SONAR_PROJECT_KEY}"
                         echo "------------------------------------------------------------"
-                    } else {
-                        error "ERROR: ${env.KUBECONFIG_PATH} not found in repository!"
                     }
                 }
             }
         }
-    } // End of Stages
-
-    post {
-        always {
-            echo "Pipeline execution finished."
-        }
     }
-} // End of Pipeline
+} 
